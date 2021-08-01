@@ -1,8 +1,0 @@
-pytelegrambotapi
-cloudinary
-requests
-psd_tools
-svgutils
-temporary
-tqdm
-pyyaml

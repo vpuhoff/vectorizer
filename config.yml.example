@@ -6,7 +6,21 @@ cloudinary:
 bot:
   token: 
 
+client:
+  entity: vectorizer
+  api_id: 
+  api_hash: 
+  phone: +
+  password: 
+  channel_id: - # https://it-stories.ru/get-chat-id-telegram/ or https://api.telegram.org/botBOT:TOKEN/getChat?chat_id=@имяканала
+  download_timeout: 180
+  dc: # https://my.telegram.org/apps
+    number: 
+    ip: 
+    port: 
+
 transformations:
   - background_removal: cloudinary_ai
   - effect: auto_contrast
   - effect: vectorize
+

@@ -1,0 +1,7 @@
+version: '3'
+services:
+  vectorizer:
+    restart: always
+    build:
+      context: .
+      dockerfile: dockerfile
