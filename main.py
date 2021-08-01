@@ -111,6 +111,7 @@ def convert_image(source, target, bot, chat_id, message_id):
             message_id=message_id,
             text="Обработка изображения",
         )
+        convert_file(source, target)
 
 
 @bot.message_handler(content_types=["document"])
@@ -128,7 +129,7 @@ def get_text_messages(message: telebot.types.Message):
                 )
 
                 with temporary.temp_dir() as temp_dir:
-                    source_file = join(temp_dir, f"{doc.file_id}.psd")
+                    source_file = join(temp_dir, f"{doc.file_name}")
                     if doc.file_size >= 19000000:
                         download_queue[doc.file_name] = None
                         download_dirs[doc.file_name] = str(temp_dir)
