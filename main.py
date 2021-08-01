@@ -1,139 +1,149 @@
+import asyncio
+import tempfile
+import threading
+from os import remove
+from os.path import basename, join
+from time import sleep
+
 import cloudinary
 import cloudinary.uploader
 import requests
-from psd_tools import PSDImage
 import svgutils.transform as sg
-from telebot.types import Document
-from os.path import basename
-from telethon.network import connection
-import temporary
-from os.path import join
-from os import remove
 import telebot
-from tqdm import tqdm
+import temporary
 import yaml
+from psd_tools import PSDImage
+from telebot.types import Document
 from telethon import TelegramClient
-from telethon.events import NewMessage
-from telethon.tl.custom.message import Message
-import asyncio
 from telethon.errors.rpcerrorlist import SessionPasswordNeededError
-import threading
-from time import sleep
-import tempfile
+from telethon.events import NewMessage
+from telethon.network import connection
+from telethon.tl.custom.message import Message
+from tqdm import tqdm
 
 download_queue = {}
 download_dirs = {}
 
-with open('config.yml') as f:
+with open("config.yml") as f:
     config = yaml.safe_load(f)
-queue_channel = config['client']['channel_id']
-
+queue_channel = config["client"]["channel_id"]
 
 
 DEFAULT_TAG = "vectorizer"
-transformations = config['transformations']
+transformations = config["transformations"]
 
 cloudinary.config(
-  cloud_name=config['cloudinary']['cloud_name'],
-  api_key=config['cloudinary']['api_key'],
-  api_secret=config['cloudinary']['api_secret']
+    cloud_name=config["cloudinary"]["cloud_name"],
+    api_key=config["cloudinary"]["api_key"],
+    api_secret=config["cloudinary"]["api_secret"],
 )
 
-bot_token = config['bot']['token']
+bot_token = config["bot"]["token"]
 
 bot = telebot.TeleBot(bot_token)
 
 
 def download_file(url, target_file):
+    """Загрузка файла"""
     print(f"Download {url}")
     with requests.get(url, stream=True, timeout=60000) as r:
         r.raise_for_status()
-        with open(target_file, 'wb') as f:
+        with open(target_file, "wb") as f:
             for chunk in tqdm(r.iter_content(chunk_size=8192)):
                 f.write(chunk)
     return target_file
 
 
 def dump_response(response):
+    """Построчный print словаря"""
     print("Upload response:")
     for key in sorted(response.keys()):
         print("  %s: %s" % (key, response[key]))
 
 
-def convert_file(source='sample.png', target='target.svg'):
+def convert_file(source="sample.png", target="target.svg"):
+    """Отправка файла в cloudinary"""
     response = cloudinary.uploader.upload(
         source,
         tags=DEFAULT_TAG,
         public_id="work",
         transformation=transformations,
-        format="svg"
+        format="svg",
     )
     print(f"Converted: {response['asset_id']}")
-    download_file(response['url'], target)
+    download_file(response["url"], target)
 
 
 def convert_image(source, target, bot, chat_id, message_id):
-    psd = PSDImage.open(source)
-    with temporary.temp_dir() as temp_dir:
-        composition = None
-        counter = 0
-        count = len(psd)
-        for layer in tqdm(psd):
-            counter += 1
-            bot.edit_message_text(
+    """Весь цикл обработки"""
+    if ".psd" in source.lower():
+        psd = PSDImage.open(source)
+        with temporary.temp_dir() as temp_dir:
+            composition = None
+            counter = 0
+            count = len(psd)
+            for layer in tqdm(psd):
+                counter += 1
+                bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
-                    text=f"Обработка слоя {layer.name} {layer.size} [{counter}/{count}]"
+                    text=f"Обработка слоя {layer.name} {layer.size} [{counter}/{count}]",
                 )
 
-            print(f"Обработка слоя {layer.name}")
-            layer_image = layer.composite()
-            layer_file = join(temp_dir, 'work_%s.png' % layer.name)
-            layer_vector = join(temp_dir, 'work_%s.svg' % layer.name)
-            layer_image.save(layer_file)
-            convert_file(layer_file, layer_vector)
-            vertorized = sg.fromfile(layer_vector)
-            if not composition:
-                composition = vertorized
+                print(f"Обработка слоя {layer.name}")
+                layer_image = layer.composite()
+                layer_file = join(temp_dir, "work_%s.png" % layer.name)
+                layer_vector = join(temp_dir, "work_%s.svg" % layer.name)
+                layer_image.save(layer_file)
+                convert_file(layer_file, layer_vector)
+                vertorized = sg.fromfile(layer_vector)
+                if not composition:
+                    composition = vertorized
+                else:
+                    composition.append(vertorized.root)
+            if composition:
+                composition.save(target)
             else:
-                composition.append(vertorized.root)
-        if composition:
-            composition.save(target)
-        else:
-            raise Exception("No layers found")
+                raise Exception("No layers found")
+    else:
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text="Обработка изображения",
+        )
 
 
-
-@bot.message_handler(content_types=['document'])
+@bot.message_handler(content_types=["document"])
 def get_text_messages(message: telebot.types.Message):
+    """Обработка входящих документов в боте"""
     try:
         if message.document:
             doc: Document = message.document
-            print(f'Received: {doc.file_name}')
-            if '.psd' in doc.file_name:
+            print(f"Received: {doc.file_name}")
+            if ".psd" in doc.file_name:
                 status = bot.send_message(
-                        chat_id=message.from_user.id,
-                        reply_to_message_id=message.id,
-                        text="Файл принят в работу"
-                    )
+                    chat_id=message.from_user.id,
+                    reply_to_message_id=message.id,
+                    text="Файл принят в работу",
+                )
 
                 with temporary.temp_dir() as temp_dir:
                     source_file = join(temp_dir, f"{doc.file_id}.psd")
                     if doc.file_size >= 19000000:
                         download_queue[doc.file_name] = None
                         download_dirs[doc.file_name] = str(temp_dir)
-                        forwarded_message = bot.forward_message(
-                                queue_channel,
-                                message.chat.id,
-                                message.message_id
-                            )
+                        bot.forward_message(
+                            queue_channel, message.chat.id, message.message_id
+                        )
                         print(f"Forwarded message id {message.message_id}")
                         bot.edit_message_text(
-                                chat_id=message.chat.id,
-                                message_id=status.message_id,
-                                text="Файл в очереди на загрузку, загрузка займет некоторое время в зависимости от размера."
-                            )
-                        for x in tqdm(range(config['client']['download_timeout'])):
+                            chat_id=message.chat.id,
+                            message_id=status.message_id,
+                            text="Файл в очереди на загрузку, загрузка займет некоторое время в зависимости от размера.",
+                        )
+                        for x in tqdm(
+                            range(config["client"]["download_timeout"])
+                        ):
                             sleep(1)
                             source_file = download_queue[doc.file_name]
                             if source_file:
@@ -141,58 +151,70 @@ def get_text_messages(message: telebot.types.Message):
                             else:
                                 print(f"waiting download file {doc.file_name}")
                         if not source_file:
-                            raise Exception("Не удалось загрузить файл за отведенное время")
+                            raise Exception(
+                                "Не удалось загрузить файл за отведенное время"
+                            )
                     else:
                         bot.edit_message_text(
-                                chat_id=message.chat.id,
-                                message_id=status.message_id,
-                                text="Загрузка файла"
-                            )
-                        file_url = bot.get_file_url(file_id=doc.file_id)
-                        download_file(file_url, source_file)
-                    target_file = join(temp_dir, f"{basename(doc.file_name)}.svg")
-                    bot.edit_message_text(
                             chat_id=message.chat.id,
                             message_id=status.message_id,
-                            text="Обработка файла"
+                            text="Загрузка файла",
                         )
-                    convert_image(source_file, target_file, bot, message.chat.id, status.message_id)
+                        file_url = bot.get_file_url(file_id=doc.file_id)
+                        download_file(file_url, source_file)
+                    target_file = join(
+                        temp_dir, f"{basename(doc.file_name)}.svg"
+                    )
+                    bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=status.message_id,
+                        text="Обработка файла",
+                    )
+                    convert_image(
+                        source_file,
+                        target_file,
+                        bot,
+                        message.chat.id,
+                        status.message_id,
+                    )
                     bot.delete_message(message.chat.id, status.message_id)
                     remove(source_file)
-                    with open(target_file, 'rb') as td:
+                    with open(target_file, "rb") as td:
                         bot.send_document(
-                                chat_id=message.from_user.id,
-                                reply_to_message_id=message.id,
-                                data=td
-                            )
+                            chat_id=message.from_user.id,
+                            reply_to_message_id=message.id,
+                            data=td,
+                        )
             else:
                 bot.send_message(
-                        chat_id=message.from_user.id,
-                        reply_to_message_id=message.id,
-                        text="Файл должен быть в формате PSD"
-                    )
+                    chat_id=message.from_user.id,
+                    reply_to_message_id=message.id,
+                    text="Файл должен быть в формате PSD",
+                )
     except Exception as e:
         error = f"Не удалось обработать файл по причине {e}"
-        if 'file is too big' in error:
+        if "file is too big" in error:
             error = "Telegram ограничивает размер файла в 20мб. Невозможно обработать данный файл, потому что он весит больше допустимого."
         bot.send_message(
-                        chat_id=message.from_user.id,
-                        reply_to_message_id=message.id,
-                        text=error
-                    )
+            chat_id=message.from_user.id,
+            reply_to_message_id=message.id,
+            text=error,
+        )
         print(e)
 
 
 async def telegram_loader():
+    """Обработчик клиента telegram"""
     client = TelegramClient(
-        config['client']['entity'],
-        config['client']['api_id'],
-        config['client']['api_hash'],
+        config["client"]["entity"],
+        config["client"]["api_id"],
+        config["client"]["api_hash"],
         # connection=connection.ConnectionTcpMTProxyRandomizedIntermediate,
     )
 
     @client.on(NewMessage())
     async def new_message_handler(event: NewMessage.Event):
+        """Обработка входящих сообщений в клиенте"""
         message: Message = event.message
         doc = message.document
         attr = doc.attributes[0]
@@ -203,26 +225,25 @@ async def telegram_loader():
         path = await message.download_media(file=target_file)
         download_queue[filename] = path
         print(f"Client received {filename}")
+
     me = None
     print("Connecting client")
     client.session.set_dc(
-        config['client']['dc']['number'],
-        config['client']['dc']['ip'],
-        config['client']['dc']['port']
+        config["client"]["dc"]["number"],
+        config["client"]["dc"]["ip"],
+        config["client"]["dc"]["port"],
     )
     await client.connect()
     if not await client.is_user_authorized():
-        await client.send_code_request(config['client']['phone'])
+        await client.send_code_request(config["client"]["phone"])
         try:
             me = await client.sign_in(
-                    phone=config['client']['phone'],
-                    code=input('Enter code: '),
-                    password=config['client']['password']
-                )
+                phone=config["client"]["phone"],
+                code=input("Enter code: "),
+                password=config["client"]["password"],
+            )
         except SessionPasswordNeededError:
-            me = await client.sign_in(
-                    password=config['client']['password']
-                )
+            me = await client.sign_in(password=config["client"]["password"])
         assert me
     else:
         client.start()
@@ -238,6 +259,7 @@ async def telegram_loader():
             return "Loader shutdown"
         except Exception as e:
             print(e)
+
 
 # asyncio.run(telegram_loader())
 

@@ -1,3 +1,4 @@
 config.yml
 *.session
 .vscode/launch.json
+interrogate_badge.svg
