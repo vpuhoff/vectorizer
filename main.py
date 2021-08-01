@@ -121,77 +121,66 @@ def get_text_messages(message: telebot.types.Message):
         if message.document:
             doc: Document = message.document
             print(f"Received: {doc.file_name}")
-            if ".psd" in doc.file_name:
-                status = bot.send_message(
-                    chat_id=message.from_user.id,
-                    reply_to_message_id=message.id,
-                    text="Файл принят в работу",
-                )
-
-                with temporary.temp_dir() as temp_dir:
-                    source_file = join(temp_dir, f"{doc.file_name}")
-                    if doc.file_size >= 19000000:
-                        download_queue[doc.file_name] = None
-                        download_dirs[doc.file_name] = str(temp_dir)
-                        bot.forward_message(
-                            queue_channel, message.chat.id, message.message_id
-                        )
-                        print(f"Forwarded message id {message.message_id}")
-                        bot.edit_message_text(
-                            chat_id=message.chat.id,
-                            message_id=status.message_id,
-                            text="Файл в очереди на загрузку, загрузка займет некоторое время в зависимости от размера.",
-                        )
-                        for x in tqdm(
-                            range(config["client"]["download_timeout"])
-                        ):
-                            sleep(1)
-                            source_file = download_queue[doc.file_name]
-                            if source_file:
-                                break
-                            else:
-                                print(f"waiting download file {doc.file_name}")
-                        if not source_file:
-                            raise Exception(
-                                "Не удалось загрузить файл за отведенное время"
-                            )
-                    else:
-                        bot.edit_message_text(
-                            chat_id=message.chat.id,
-                            message_id=status.message_id,
-                            text="Загрузка файла",
-                        )
-                        file_url = bot.get_file_url(file_id=doc.file_id)
-                        download_file(file_url, source_file)
-                    target_file = join(
-                        temp_dir, f"{basename(doc.file_name)}.svg"
+            status = bot.send_message(
+                chat_id=message.from_user.id,
+                reply_to_message_id=message.id,
+                text="Файл принят в работу",
+            )
+            with temporary.temp_dir() as temp_dir:
+                source_file = join(temp_dir, f"{doc.file_name}")
+                if doc.file_size >= 19000000:
+                    download_queue[doc.file_name] = None
+                    download_dirs[doc.file_name] = str(temp_dir)
+                    bot.forward_message(
+                        queue_channel, message.chat.id, message.message_id
                     )
+                    print(f"Forwarded message id {message.message_id}")
                     bot.edit_message_text(
                         chat_id=message.chat.id,
                         message_id=status.message_id,
-                        text="Обработка файла",
+                        text="Файл в очереди на загрузку, загрузка займет некоторое время в зависимости от размера.",
                     )
-                    convert_image(
-                        source_file,
-                        target_file,
-                        bot,
-                        message.chat.id,
-                        status.message_id,
-                    )
-                    bot.delete_message(message.chat.id, status.message_id)
-                    remove(source_file)
-                    with open(target_file, "rb") as td:
-                        bot.send_document(
-                            chat_id=message.from_user.id,
-                            reply_to_message_id=message.id,
-                            data=td,
+                    for x in tqdm(range(config["client"]["download_timeout"])):
+                        sleep(1)
+                        source_file = download_queue[doc.file_name]
+                        if source_file:
+                            break
+                        else:
+                            print(f"waiting download file {doc.file_name}")
+                    if not source_file:
+                        raise Exception(
+                            "Не удалось загрузить файл за отведенное время"
                         )
-            else:
-                bot.send_message(
-                    chat_id=message.from_user.id,
-                    reply_to_message_id=message.id,
-                    text="Файл должен быть в формате PSD",
+                else:
+                    bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=status.message_id,
+                        text="Загрузка файла",
+                    )
+                    file_url = bot.get_file_url(file_id=doc.file_id)
+                    download_file(file_url, source_file)
+                target_file = join(temp_dir, f"{basename(doc.file_name)}.svg")
+                bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=status.message_id,
+                    text="Обработка файла",
                 )
+                convert_image(
+                    source_file,
+                    target_file,
+                    bot,
+                    message.chat.id,
+                    status.message_id,
+                )
+                bot.delete_message(message.chat.id, status.message_id)
+                remove(source_file)
+                with open(target_file, "rb") as td:
+                    bot.send_document(
+                        chat_id=message.from_user.id,
+                        reply_to_message_id=message.id,
+                        data=td,
+                    )
+
     except Exception as e:
         error = f"Не удалось обработать файл по причине {e}"
         if "file is too big" in error:
