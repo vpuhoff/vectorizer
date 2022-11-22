@@ -23,7 +23,7 @@ matplotlib==3.4.2; python_version >= '3.7'
 networkx==2.6.2; python_version >= '3.7'
 numpy==1.21.1; python_version >= '3.7'
 pathlib2==2.3.6
-pillow==8.3.1; python_version >= '3.6'
+pillow==9.3.0; python_version >= '3.6'
 psd-tools==1.9.17
 pyaes==1.6.1
 pyasn1==0.4.8
